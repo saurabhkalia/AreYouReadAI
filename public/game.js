@@ -500,9 +500,9 @@ function generateTargets() {
     const groundY = engineState.terrain.find(pt => pt.x >= towerX).y;
 
     // 4 crates stacked. The lowest one rests on the ground.
-    // Crates will be separated by 70px vertical gaps to serve as "platforms"
+    // Reduce vertical gap to compress the tower and avoid UI overlap
     const crateSize = 50;
-    const verticalSpacing = 90;
+    const verticalSpacing = 55;
 
     options.forEach((opt, idx) => {
         // Index 0 is the bottom crate, index 3 is the top crate.
@@ -727,7 +727,7 @@ function drawTargets() {
     engineState.targets.forEach(t => {
         // Draw the pole connecting this crate to the one below it (or the ground)
         const poleX = t.x + t.width / 2;
-        const poleHeight = 90; // matches verticalSpacing in generateTargets
+        const poleHeight = 55; // matches verticalSpacing in generateTargets
         ctx.strokeStyle = '#BDC3C7';
         ctx.lineWidth = 4;
         ctx.beginPath();
