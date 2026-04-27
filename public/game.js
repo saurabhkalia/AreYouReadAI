@@ -178,6 +178,7 @@ let engineState = {
     tanks: [],
     projectiles: [],
     targets: [], // question answers
+    explosions: [], // Blast effects
     currentQuestion: null,
     timeRemaining: 10,
     timerInterval: null,
@@ -433,37 +434,34 @@ function startNewRound() {
 
     generateTargets();
 
-    // Trigger Countdown Overlay
-    let countdown = 3;
-    let showingTitle = true;
-    const overlay = document.getElementById('announcement-overlay');
-    const textEl = document.getElementById('announcement-text');
-
-    overlay.classList.remove('hidden');
-
-    // First, announce the level if it's the first question
+    // Trigger Countdown Overlay only if it's the first question of a new level
     if (engineState.questionIndex === 0) {
-        textEl.innerText = `Level ${engineState.level}`;
-    } else {
-        showingTitle = false;
-        textEl.innerText = countdown;
-        countdown--;
-    }
+        let countdown = 3;
+        let showingTitle = true;
+        const overlay = document.getElementById('announcement-overlay');
+        const textEl = document.getElementById('announcement-text');
 
-    let countdownInterval = setInterval(() => {
-        if (showingTitle) {
-            showingTitle = false;
-            textEl.innerText = countdown;
-            countdown--;
-        } else if (countdown > 0) {
-            textEl.innerText = countdown;
-            countdown--;
-        } else {
-            clearInterval(countdownInterval);
-            overlay.classList.add('hidden');
-            beginRoundPlay();
-        }
-    }, 1000);
+        overlay.classList.remove('hidden');
+        textEl.innerText = `Level ${engineState.level}`;
+
+        let countdownInterval = setInterval(() => {
+            if (showingTitle) {
+                showingTitle = false;
+                textEl.innerText = countdown;
+                countdown--;
+            } else if (countdown > 0) {
+                textEl.innerText = countdown;
+                countdown--;
+            } else {
+                clearInterval(countdownInterval);
+                overlay.classList.add('hidden');
+                beginRoundPlay();
+            }
+        }, 1000);
+    } else {
+        // Skip countdown for subsequent questions in the same level
+        beginRoundPlay();
+    }
 }
 
 function beginRoundPlay() {
@@ -500,9 +498,9 @@ function generateTargets() {
     const groundY = engineState.terrain.find(pt => pt.x >= towerX).y;
 
     // 4 crates stacked. The lowest one rests on the ground.
-    // Reduce vertical gap to compress the tower and avoid UI overlap
+    // Tightly pack the crates to prevent UI overlap
     const crateSize = 50;
-    const verticalSpacing = 55;
+    const verticalSpacing = 10;
 
     options.forEach((opt, idx) => {
         // Index 0 is the bottom crate, index 3 is the top crate.
@@ -610,6 +608,17 @@ function update() {
         engineState.targets.forEach(t => {
             if (p.x >= t.x && p.x <= t.x + t.width && p.y >= t.y && p.y <= t.y + t.height) {
                 p.active = false;
+
+                // Spawn explosion blast effect at impact point
+                engineState.explosions.push({
+                    x: p.x,
+                    y: p.y,
+                    radius: 5,
+                    maxRadius: 30,
+                    alpha: 1.0,
+                    color: '#FFA500' // Orange blast
+                });
+
                 if (!t.hitBy.includes(p.isPlayer1)) {
                     t.hitBy.push(p.isPlayer1);
                     handleTargetHit(t, p.isPlayer1);
@@ -619,6 +628,13 @@ function update() {
     });
 
     engineState.projectiles = engineState.projectiles.filter(p => p.active);
+
+    // Update explosions
+    engineState.explosions.forEach(exp => {
+        exp.radius += 2;
+        exp.alpha -= 0.05;
+    });
+    engineState.explosions = engineState.explosions.filter(exp => exp.alpha > 0);
 
     if (engineState.isCharging) {
         engineState.chargePower += 0.5 * engineState.chargeDirection;
@@ -725,26 +741,16 @@ function wrapText(context, text, x, y, maxWidth, lineHeight) {
 
 function drawTargets() {
     engineState.targets.forEach(t => {
-        // Draw the pole connecting this crate to the one below it (or the ground)
-        const poleX = t.x + t.width / 2;
-        const poleHeight = 55; // matches verticalSpacing in generateTargets
-        ctx.strokeStyle = '#BDC3C7';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(poleX, t.y + t.height);
-        ctx.lineTo(poleX, t.y + t.height + poleHeight);
-        ctx.stroke();
-
         // Draw the flag sticking out to the right of the crate
         const flagWidth = 140;
-        const flagHeight = 60;
+        const flagHeight = 50; // Match crate height
         const flagX = t.x + t.width + 10;
-        const flagY = t.y - 5;
+        const flagY = t.y;
 
         // If showing result, flag changes color, else dark blueish
         let flagColor = t.showResult ? t.color : '#2C3E50';
 
-        // Draw pole arm holding flag
+        // Draw small horizontal bracket holding flag
         ctx.strokeStyle = '#BDC3C7';
         ctx.lineWidth = 4;
         ctx.beginPath();
@@ -798,6 +804,20 @@ function draw() {
     drawTargets();
     engineState.tanks.forEach(t => t.draw());
     engineState.projectiles.forEach(p => p.draw());
+
+    // Draw explosions
+    engineState.explosions.forEach(exp => {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, exp.alpha);
+        ctx.beginPath();
+        ctx.arc(exp.x, exp.y, exp.radius, 0, Math.PI * 2);
+        ctx.fillStyle = exp.color;
+        ctx.fill();
+        ctx.strokeStyle = '#FFFF00'; // Yellow inner rim
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+    });
 }
 
 function endGame() {
