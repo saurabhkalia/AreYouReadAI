@@ -198,32 +198,79 @@ class Tank {
     constructor(x, y, isPlayer1, color) {
         this.x = x;
         this.y = y;
-        this.width = 40;
-        this.height = 20;
+        this.width = 46;
+        this.height = 14;
         this.isPlayer1 = isPlayer1;
         this.color = color;
         // Default aim based on side
         this.angle = isPlayer1 ? -Math.PI / 4 : -3 * Math.PI / 4;
+
+        // Setup Avatar Image
+        this.avatarImg = new Image();
+        if (isPlayer1) {
+            this.avatarImg.src = getAvatarSrc(gameState.avatar);
+        } else {
+            this.avatarImg.src = getAvatarSrc(gameState.opponentAvatar);
+        }
     }
 
     draw() {
         ctx.save();
         ctx.translate(this.x, this.y);
 
-        // Draw tank body
-        ctx.fillStyle = this.color;
-        ctx.fillRect(-this.width/2, -this.height, this.width, this.height);
-
-        // Draw turret
+        // Draw tank tracks (bottom)
+        ctx.fillStyle = '#222';
         ctx.beginPath();
-        ctx.arc(0, -this.height, 10, 0, Math.PI * 2);
-        ctx.fillStyle = '#333';
+        ctx.roundRect(-this.width/2 - 2, -6, this.width + 4, 6, 3);
         ctx.fill();
 
+        // Draw tank body
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.roundRect(-this.width/2 + 2, -this.height - 4, this.width - 4, this.height, 4);
+        ctx.fill();
+
+        // Add some body details (shading)
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillRect(-this.width/2 + 2, -this.height/2 - 2, this.width - 4, this.height/2);
+
+        // Draw turret base
+        ctx.beginPath();
+        ctx.arc(0, -this.height - 4, 10, 0, Math.PI, true); // Semi circle top
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.save();
         // Draw barrel
+        // Move to turret pivot point
+        ctx.translate(0, -this.height - 4);
         ctx.rotate(this.angle);
-        ctx.fillStyle = '#555';
-        ctx.fillRect(0, -3, 30, 6);
+        ctx.fillStyle = '#444';
+        ctx.fillRect(0, -4, 32, 8); // main barrel
+        ctx.fillStyle = '#222';
+        ctx.fillRect(28, -5, 6, 10); // barrel tip
+        ctx.restore();
+
+        // Draw Avatar hovering above
+        if (this.avatarImg.complete && this.avatarImg.naturalWidth !== 0) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(0, -this.height - 35, 15, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(this.avatarImg, -15, -this.height - 50, 30, 30);
+            ctx.restore();
+
+            // Avatar border
+            ctx.beginPath();
+            ctx.arc(0, -this.height - 35, 15, 0, Math.PI * 2);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'white';
+            ctx.stroke();
+        }
 
         ctx.restore();
     }
@@ -366,25 +413,35 @@ function startNewRound() {
     }, 1000);
 }
 
+// Fisher-Yates shuffle using our seeded random
+function shuffleArraySeeded(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(seededRandom() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+}
+
 function generateTargets() {
     engineState.targets = [];
     const options = [...engineState.currentQuestion.options];
-    // Shuffle options using seeded random if in PvP to match?
-    // Actually, simple deterministic placement based on order is fine for sync:
 
-    // Spread targets between x=300 and x=700
-    const startX = 250;
-    const spacing = 400 / (options.length - 1);
+    // Seed using level and question to ensure both players shuffle exactly the same way
+    currentSeed = engineState.level * 100 + engineState.questionIndex + 1; // +1 to offset from terrain seed
+    shuffleArraySeeded(options);
+
+    // Spread targets
+    const startX = 200;
+    const spacing = 600 / (options.length - 1); // Wider spread
 
     options.forEach((opt, idx) => {
         const x = startX + (idx * spacing);
         const groundY = engineState.terrain.find(pt => pt.x >= x).y;
 
         engineState.targets.push({
-            x: x - 40,
-            y: groundY - 40,
-            width: 80,
-            height: 40,
+            x: x - 60,
+            y: groundY - 60,
+            width: 120, // Increased width
+            height: 60, // Increased height
             text: opt,
             isCorrect: opt === engineState.currentQuestion.answer,
             hitBy: [], // store who hit it
@@ -395,90 +452,71 @@ function generateTargets() {
 }
 
 let aiState = {
-    isShooting: false,
+    state: 'IDLE', // IDLE, AIMING, CHARGING
     nextActionTime: 0,
-    targetSet: false,
+    targetBox: null,
     aimingAngle: 0,
-    targetPower: 0
+    targetPower: 0,
+    currentPower: 0,
+    isAccurate: true
 };
 
 function processAI() {
     if (gameState.mode !== 'pvai' || engineState.timeRemaining <= 0 || engineState.opponentShotsRemaining <= 0) return;
 
     const now = Date.now();
+    const oppTank = engineState.tanks.find(t => !t.isPlayer1);
 
-    // AI thinks for a bit before taking action
-    if (!aiState.targetSet && now > aiState.nextActionTime) {
-        // Decide what to shoot at: 75% chance correct, 25% wrong
-        const isAccurate = Math.random() < 0.75;
-        let targetBox;
-
-        if (isAccurate) {
-            targetBox = engineState.targets.find(t => t.isCorrect);
+    if (aiState.state === 'IDLE' && now > aiState.nextActionTime) {
+        aiState.isAccurate = Math.random() < 0.75;
+        if (aiState.isAccurate) {
+            aiState.targetBox = engineState.targets.find(t => t.isCorrect);
         } else {
             const wrongBoxes = engineState.targets.filter(t => !t.isCorrect);
-            targetBox = wrongBoxes[Math.floor(Math.random() * wrongBoxes.length)];
+            aiState.targetBox = wrongBoxes[Math.floor(Math.random() * wrongBoxes.length)];
         }
 
-        if (targetBox) {
-            // Calculate rough trajectory to hit the target
-            const oppTank = engineState.tanks.find(t => !t.isPlayer1);
+        if (aiState.targetBox) {
+            const dx = aiState.targetBox.x + aiState.targetBox.width/2 - oppTank.x;
+            const dy = aiState.targetBox.y + aiState.targetBox.height/2 - (oppTank.y - oppTank.height);
 
-            // Basic physics solver for angle and power
-            // x = v*cos(theta)*t => t = x / (v*cos(theta))
-            // y = v*sin(theta)*t + 0.5*g*t^2
-
-            const dx = targetBox.x + targetBox.width/2 - oppTank.x;
-            const dy = targetBox.y + targetBox.height/2 - (oppTank.y - oppTank.height);
-
-            // Fix an angle, solve for power (velocity)
-            // AI is on the right, so shoot left (angle between Math.PI and Math.PI*1.5)
-            // Let's pick a random high arc
             aiState.aimingAngle = Math.PI + Math.PI/4 + (Math.random() * 0.2 - 0.1);
 
-            // v^2 = (g * x^2) / (2 * cos^2(theta) * (x * tan(theta) - y))
             const g = engineState.gravity;
             const cos = Math.cos(aiState.aimingAngle);
             const tan = Math.tan(aiState.aimingAngle);
 
-            const vSq = (g * dx * dx) / (2 * cos * cos * (dx * tan - dy));
-
-            if (vSq > 0) {
-                // Add some slight fuzziness to power based on AI accuracy
-                const powerFuzz = isAccurate ? (Math.random() * 0.5 - 0.25) : (Math.random() * 4 - 2);
+            const denominator = 2 * cos * cos * (dy - dx * tan);
+            if (denominator > 0) {
+                const vSq = (g * dx * dx) / denominator;
+                const powerFuzz = aiState.isAccurate ? (Math.random() * 0.5 - 0.25) : (Math.random() * 4 - 2);
                 aiState.targetPower = Math.sqrt(vSq) + powerFuzz;
-
-                // Cap power
                 aiState.targetPower = Math.min(aiState.targetPower, engineState.maxPower);
 
-                aiState.targetSet = true;
-                aiState.isShooting = true;
-                // Animate tank aiming
-                oppTank.angle = aiState.aimingAngle;
+                aiState.state = 'AIMING';
             } else {
-                // Try again next frame if trajectory is invalid
                 aiState.nextActionTime = now + 500;
             }
         }
-    }
+    } else if (aiState.state === 'AIMING') {
+        const diff = aiState.aimingAngle - oppTank.angle;
+        if (Math.abs(diff) > 0.05) {
+            oppTank.angle += diff * 0.1;
+        } else {
+            oppTank.angle = aiState.aimingAngle;
+            aiState.state = 'CHARGING';
+            aiState.currentPower = 0;
+        }
+    } else if (aiState.state === 'CHARGING') {
+        aiState.currentPower += 0.5;
+        if (aiState.currentPower >= aiState.targetPower) {
+            fireProjectile(oppTank, aiState.currentPower);
+            engineState.opponentShotsRemaining--;
+            document.getElementById('p2-shots').innerText = engineState.opponentShotsRemaining;
 
-    if (aiState.isShooting) {
-        // Fire instantly or charge? Let's just fire instantly for simplicity but simulate charging delay
-        setTimeout(() => {
-            if (engineState.timeRemaining > 0 && engineState.opponentShotsRemaining > 0) {
-                const oppTank = engineState.tanks.find(t => !t.isPlayer1);
-                fireProjectile(oppTank, aiState.targetPower);
-                engineState.opponentShotsRemaining--;
-                document.getElementById('p2-shots').innerText = engineState.opponentShotsRemaining;
-
-                // Reset AI for next shot
-                aiState.targetSet = false;
-                aiState.isShooting = false;
-                // Random delay before next shot (between 2 to 4 seconds)
-                aiState.nextActionTime = Date.now() + 2000 + Math.random() * 2000;
-            }
-        }, 1000); // 1 second charging simulation
-        aiState.isShooting = false; // Prevent multiple timeouts
+            aiState.state = 'IDLE';
+            aiState.nextActionTime = Date.now() + 2000 + Math.random() * 2000;
+        }
     }
 }
 
@@ -584,21 +622,28 @@ function endRound() {
 function wrapText(context, text, x, y, maxWidth, lineHeight) {
     const words = text.split(' ');
     let line = '';
+    const lines = [];
 
+    // Pre-calculate lines to center them vertically
     for(let n = 0; n < words.length; n++) {
       const testLine = line + words[n] + ' ';
       const metrics = context.measureText(testLine);
       const testWidth = metrics.width;
       if (testWidth > maxWidth && n > 0) {
-        context.fillText(line, x, y);
+        lines.push(line);
         line = words[n] + ' ';
-        y += lineHeight;
       }
       else {
         line = testLine;
       }
     }
-    context.fillText(line, x, y);
+    lines.push(line);
+
+    // Adjust y to start so the text block is vertically centered
+    let startY = y - ((lines.length - 1) * lineHeight) / 2;
+    for (let i = 0; i < lines.length; i++) {
+        context.fillText(lines[i].trim(), x, startY + (i * lineHeight));
+    }
 }
 
 function drawTargets() {
@@ -617,15 +662,15 @@ function drawTargets() {
             ctx.fillRect(t.x, t.y - 15, t.width, 15);
             ctx.fillStyle = 'black';
             ctx.font = '10px Arial';
-            ctx.fillText(hitText, t.x + 5, t.y - 5);
+            ctx.fillText(hitText, t.x + t.width/2, t.y - 7.5);
         }
 
         ctx.fillStyle = 'white';
-        ctx.font = '12px Arial';
+        ctx.font = '11px Arial'; // Slightly smaller font to fit large text
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         // Wrap text to fit inside box
-        wrapText(ctx, t.text, t.x + t.width/2, t.y + 15, t.width - 10, 12);
+        wrapText(ctx, t.text, t.x + t.width/2, t.y + t.height/2, t.width - 10, 14);
     });
 }
 
@@ -674,7 +719,12 @@ function getMyTank() {
     return engineState.tanks.find(t => t.isPlayer1 === gameState.isPlayer1);
 }
 
+let controlsSetup = false;
+
 function setupControls() {
+    if (controlsSetup) return; // Prevent multiple attachments
+    controlsSetup = true;
+
     canvas.addEventListener('mousemove', (e) => {
         if (engineState.myShotsRemaining <= 0) return;
         const rect = canvas.getBoundingClientRect();
@@ -683,8 +733,8 @@ function setupControls() {
 
         const tank = getMyTank();
         if (tank) {
-            // Tank barrel pivot is at (tank.x, tank.y - tank.height)
-            const dy = mouseY - (tank.y - tank.height);
+            // Tank barrel pivot is at (tank.x, tank.y - tank.height - 4)
+            const dy = mouseY - (tank.y - tank.height - 4);
             const dx = mouseX - tank.x;
             tank.angle = Math.atan2(dy, dx);
 
@@ -695,7 +745,7 @@ function setupControls() {
     });
 
     canvas.addEventListener('mousedown', (e) => {
-        if (engineState.myShotsRemaining <= 0 || engineState.timeRemaining <= 0) return;
+        if (engineState.myShotsRemaining <= 0 || engineState.timeRemaining <= 0 || engineState.isCharging) return;
         if (e.button === 0) { // Left click
             engineState.isCharging = true;
             engineState.chargePower = 0;
@@ -709,25 +759,27 @@ function setupControls() {
         if (engineState.isCharging) {
             engineState.isCharging = false;
             powerBarContainer.style.display = 'none';
-            fireProjectile(getMyTank(), engineState.chargePower);
 
-            engineState.myShotsRemaining--;
-            document.getElementById(gameState.isPlayer1 ? 'p1-shots' : 'p2-shots').innerText = engineState.myShotsRemaining;
+            if (engineState.myShotsRemaining > 0) {
+                fireProjectile(getMyTank(), engineState.chargePower);
+                engineState.myShotsRemaining--;
+                document.getElementById(gameState.isPlayer1 ? 'p1-shots' : 'p2-shots').innerText = engineState.myShotsRemaining;
 
-            if (gameState.mode === 'pvp') {
-                socket.emit('shoot', {
-                    roomCode: gameState.roomCode,
-                    power: engineState.chargePower,
-                    angle: getMyTank().angle
-                });
+                if (gameState.mode === 'pvp') {
+                    socket.emit('shoot', {
+                        roomCode: gameState.roomCode,
+                        power: engineState.chargePower,
+                        angle: getMyTank().angle
+                    });
+                }
             }
         }
     });
 }
 
 function fireProjectile(tank, power) {
-    const startX = tank.x + Math.cos(tank.angle) * 30;
-    const startY = tank.y - tank.height + Math.sin(tank.angle) * 30;
+    const startX = tank.x + Math.cos(tank.angle) * 32;
+    const startY = tank.y - tank.height - 4 + Math.sin(tank.angle) * 32;
 
     const vx = Math.cos(tank.angle) * power;
     const vy = Math.sin(tank.angle) * power;
