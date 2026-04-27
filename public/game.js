@@ -343,8 +343,11 @@ function generateTerrain(level) {
             y -= Math.sin(i * 0.15) * 150 + Math.cos(i * 0.4) * 50 + seededRandom() * 30;
         }
 
-        // Flatten edges for tanks
-        if (i < 5 || i > points - 6) {
+        // Flatten edges for tanks (Wider area to prevent obstruction and allow random spawn)
+        // points = 50, step = 24.4px
+        // Flat zone left: indices 0 to 10 (approx 0 to 250px)
+        // Flat zone right: indices 39 to 49 (approx 950 to 1200px)
+        if (i <= 10 || i >= points - 11) {
             y = canvas.height - 100;
         }
 
@@ -404,8 +407,15 @@ function startNewRound() {
 
     engineState.terrain = generateTerrain(engineState.level);
 
-    const p1X = 100;
-    const p2X = canvas.width - 100;
+    // Seed using level and question to ensure both players get identical tank spawns
+    currentSeed = engineState.level * 100 + engineState.questionIndex + 2;
+
+    // Randomize spawn positions within the flat zones
+    // P1 zone: 50 to 200
+    // P2 zone: 1000 to 1150
+    const p1X = 50 + seededRandom() * 150;
+    const p2X = 1000 + seededRandom() * 150;
+
     const p1Y = engineState.terrain.find(pt => pt.x >= p1X).y;
     const p2Y = engineState.terrain.find(pt => pt.x >= p2X).y;
 

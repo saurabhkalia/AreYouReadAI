@@ -231,7 +231,7 @@ input[type="text"] {
     padding: 0.5rem 1rem;
     font-size: 0.9rem;
     z-index: 20;
-    pointer-events: auto; /* Required because #game-ui ignores pointer events */
+    pointer-events: auto;
 }
 
 .center-info {
