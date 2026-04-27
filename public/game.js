@@ -335,19 +335,24 @@ function generateTerrain(level) {
     for (let i = 0; i < points; i++) {
         let y = canvas.height - 100; // base height
 
+        // Add random noise to all levels based on currentSeed so it changes every round
+        y -= seededRandom() * 10;
+
         if (level === 2) {
-            y -= Math.sin(i * 0.2) * 50;
+            y -= Math.sin(i * 0.2) * 50 + seededRandom() * 20;
         } else if (level === 3) {
-            y -= Math.sin(i * 0.3) * 100 + seededRandom() * 20;
+            y -= Math.sin(i * 0.3) * 100 + seededRandom() * 30;
         } else if (level === 4) {
-            y -= Math.sin(i * 0.15) * 150 + Math.cos(i * 0.4) * 50 + seededRandom() * 30;
+            y -= Math.sin(i * 0.15) * 150 + Math.cos(i * 0.4) * 50 + seededRandom() * 40;
         }
 
-        // Flatten edges for tanks (Wider area to prevent obstruction and allow random spawn)
-        // points = 50, step = 24.4px
-        // Flat zone left: indices 0 to 10 (approx 0 to 250px)
-        // Flat zone right: indices 39 to 49 (approx 950 to 1200px)
+        // Flatten edges for tanks
         if (i <= 10 || i >= points - 11) {
+            y = canvas.height - 100;
+        }
+
+        // Flatten center area for the vertical crate tower (approx x=500 to x=700)
+        if (i >= 21 && i <= 28) {
             y = canvas.height - 100;
         }
 
@@ -394,8 +399,10 @@ function startNewRound() {
     document.getElementById('question-text').innerText = engineState.currentQuestion.question;
     document.getElementById('level-display').innerText = `Level ${engineState.level}`;
 
-    engineState.timeRemaining = engineState.currentQuestion.difficulty === 'hard' ? 15 : 10;
-    document.getElementById('timer-display').innerText = engineState.timeRemaining;
+    // Stop any existing timer
+    clearInterval(engineState.timerInterval);
+    engineState.timeRemaining = 0; // 0 prevents controls from firing
+    document.getElementById('timer-display').innerText = "---";
 
     engineState.myShotsRemaining = 3;
     engineState.opponentShotsRemaining = 3;
@@ -426,7 +433,43 @@ function startNewRound() {
 
     generateTargets();
 
-    clearInterval(engineState.timerInterval);
+    // Trigger Countdown Overlay
+    let countdown = 3;
+    let showingTitle = true;
+    const overlay = document.getElementById('announcement-overlay');
+    const textEl = document.getElementById('announcement-text');
+
+    overlay.classList.remove('hidden');
+
+    // First, announce the level if it's the first question
+    if (engineState.questionIndex === 0) {
+        textEl.innerText = `Level ${engineState.level}`;
+    } else {
+        showingTitle = false;
+        textEl.innerText = countdown;
+        countdown--;
+    }
+
+    let countdownInterval = setInterval(() => {
+        if (showingTitle) {
+            showingTitle = false;
+            textEl.innerText = countdown;
+            countdown--;
+        } else if (countdown > 0) {
+            textEl.innerText = countdown;
+            countdown--;
+        } else {
+            clearInterval(countdownInterval);
+            overlay.classList.add('hidden');
+            beginRoundPlay();
+        }
+    }, 1000);
+}
+
+function beginRoundPlay() {
+    engineState.timeRemaining = engineState.currentQuestion.difficulty === 'hard' ? 15 : 10;
+    document.getElementById('timer-display').innerText = engineState.timeRemaining;
+
     engineState.timerInterval = setInterval(() => {
         engineState.timeRemaining--;
         document.getElementById('timer-display').innerText = engineState.timeRemaining;
@@ -449,25 +492,28 @@ function generateTargets() {
     const options = [...engineState.currentQuestion.options];
 
     // Seed using level and question to ensure both players shuffle exactly the same way
-    currentSeed = engineState.level * 100 + engineState.questionIndex + 1; // +1 to offset from terrain seed
+    currentSeed = engineState.level * 100 + engineState.questionIndex + 1;
     shuffleArraySeeded(options);
 
-    // Spread targets widely over 1200px canvas, keeping decent distance from tanks
-    // Tanks are roughly at x=100 and x=1100
-    const startX = 300;
-    const spreadArea = 600; // Between x=300 and x=900
-    const spacing = spreadArea / (options.length - 1);
+    // Stack targets vertically in the exact center
+    const towerX = 600; // Exact center of 1200px canvas
+    const groundY = engineState.terrain.find(pt => pt.x >= towerX).y;
+
+    // 4 crates stacked. The lowest one rests on the ground.
+    // Crates will be separated by 70px vertical gaps to serve as "platforms"
+    const crateSize = 50;
+    const verticalSpacing = 90;
 
     options.forEach((opt, idx) => {
-        const x = startX + (idx * spacing);
-        const groundY = engineState.terrain.find(pt => pt.x >= x).y;
+        // Index 0 is the bottom crate, index 3 is the top crate.
+        const y = groundY - crateSize - (idx * (crateSize + verticalSpacing));
 
         // Define hitbox for the Crate ONLY
         engineState.targets.push({
-            x: x - 25,     // 50px wide crate
-            y: groundY - 50, // 50px tall crate resting on ground
-            width: 50,
-            height: 50,
+            x: towerX - (crateSize / 2),
+            y: y,
+            width: crateSize,
+            height: crateSize,
             text: opt,
             isCorrect: opt === engineState.currentQuestion.answer,
             hitBy: [], // store who hit it
@@ -679,31 +725,40 @@ function wrapText(context, text, x, y, maxWidth, lineHeight) {
 
 function drawTargets() {
     engineState.targets.forEach(t => {
-        // Draw the flagpole emerging from the crate
+        // Draw the pole connecting this crate to the one below it (or the ground)
         const poleX = t.x + t.width / 2;
-        const poleHeight = 100;
+        const poleHeight = 90; // matches verticalSpacing in generateTargets
         ctx.strokeStyle = '#BDC3C7';
         ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(poleX, t.y);
-        ctx.lineTo(poleX, t.y - poleHeight);
+        ctx.moveTo(poleX, t.y + t.height);
+        ctx.lineTo(poleX, t.y + t.height + poleHeight);
         ctx.stroke();
 
-        // Draw the flag
+        // Draw the flag sticking out to the right of the crate
         const flagWidth = 140;
-        const flagHeight = 70;
-        const flagY = t.y - poleHeight;
+        const flagHeight = 60;
+        const flagX = t.x + t.width + 10;
+        const flagY = t.y - 5;
 
         // If showing result, flag changes color, else dark blueish
         let flagColor = t.showResult ? t.color : '#2C3E50';
 
+        // Draw pole arm holding flag
+        ctx.strokeStyle = '#BDC3C7';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(t.x + t.width, t.y + 10);
+        ctx.lineTo(flagX, t.y + 10);
+        ctx.stroke();
+
         ctx.fillStyle = flagColor;
-        ctx.fillRect(poleX, flagY, flagWidth, flagHeight);
+        ctx.fillRect(flagX, flagY, flagWidth, flagHeight);
         ctx.strokeStyle = 'white';
         ctx.lineWidth = 2;
-        ctx.strokeRect(poleX, flagY, flagWidth, flagHeight);
+        ctx.strokeRect(flagX, flagY, flagWidth, flagHeight);
 
-        // Draw hit markers above the crate, but below flag
+        // Draw hit markers above the crate
         if (t.hitBy.length > 0) {
             const hitText = t.hitBy.map(isP1 => isP1 ? 'P1' : 'P2').join(',');
             ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
@@ -718,7 +773,7 @@ function drawTargets() {
         ctx.font = '11px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        wrapText(ctx, t.text, poleX + flagWidth/2, flagY + flagHeight/2, flagWidth - 10, 14);
+        wrapText(ctx, t.text, flagX + flagWidth/2, flagY + flagHeight/2, flagWidth - 10, 14);
 
         // Draw the Crate (Hitbox)
         ctx.fillStyle = '#8B4513'; // Base wood color
