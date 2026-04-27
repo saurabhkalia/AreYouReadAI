@@ -137,21 +137,19 @@ function getAvatarSrc(avatarData) {
 function setupGameUI() {
     const p1NameEl = document.getElementById('p1-name-ui');
     const p2NameEl = document.getElementById('p2-name-ui');
-    const p1AvatarEl = document.getElementById('p1-avatar-ui');
-    const p2AvatarEl = document.getElementById('p2-avatar-ui');
 
     if (gameState.isPlayer1) {
         p1NameEl.innerText = gameState.playerName;
-        p1AvatarEl.src = getAvatarSrc(gameState.avatar);
         p2NameEl.innerText = gameState.opponentName || 'Player 2';
-        p2AvatarEl.src = getAvatarSrc(gameState.opponentAvatar);
     } else {
         p1NameEl.innerText = gameState.opponentName || 'Player 1';
-        p1AvatarEl.src = getAvatarSrc(gameState.opponentAvatar);
         p2NameEl.innerText = gameState.playerName;
-        p2AvatarEl.src = getAvatarSrc(gameState.avatar);
     }
 }
+
+document.getElementById('btnQuitGameMid').addEventListener('click', () => {
+    location.reload();
+});
 
 socket.on('error', (msg) => {
     const msgEl = document.getElementById('lobby-message');
@@ -191,7 +189,9 @@ let engineState = {
     myShotsRemaining: 3,
     opponentShotsRemaining: 3,
     myScore: 0,
-    opponentScore: 0
+    opponentScore: 0,
+    pendingMyPoints: 0,
+    pendingOpponentPoints: 0
 };
 
 class Tank {
@@ -271,6 +271,16 @@ class Tank {
             ctx.strokeStyle = 'white';
             ctx.stroke();
         }
+
+        // Draw Angle in degrees text
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        // Convert rad to deg, where 0 is right, -90 is up
+        let deg = Math.round((this.angle * 180) / Math.PI);
+        // Normalize degrees so it looks intuitive (0 to 180 over the top)
+        deg = deg < 0 ? Math.abs(deg) : 360 - deg;
+        ctx.fillText(`${deg}°`, 0, 15);
 
         ctx.restore();
     }
@@ -389,6 +399,9 @@ function startNewRound() {
     document.getElementById('p1-shots').innerText = 3;
     document.getElementById('p2-shots').innerText = 3;
 
+    engineState.pendingMyPoints = 0;
+    engineState.pendingOpponentPoints = 0;
+
     engineState.terrain = generateTerrain(engineState.level);
 
     const p1X = 100;
@@ -429,23 +442,26 @@ function generateTargets() {
     currentSeed = engineState.level * 100 + engineState.questionIndex + 1; // +1 to offset from terrain seed
     shuffleArraySeeded(options);
 
-    // Spread targets
-    const startX = 200;
-    const spacing = 600 / (options.length - 1); // Wider spread
+    // Spread targets widely over 1200px canvas, keeping decent distance from tanks
+    // Tanks are roughly at x=100 and x=1100
+    const startX = 300;
+    const spreadArea = 600; // Between x=300 and x=900
+    const spacing = spreadArea / (options.length - 1);
 
     options.forEach((opt, idx) => {
         const x = startX + (idx * spacing);
         const groundY = engineState.terrain.find(pt => pt.x >= x).y;
 
+        // Define hitbox for the Crate ONLY
         engineState.targets.push({
-            x: x - 60,
-            y: groundY - 60,
-            width: 120, // Increased width
-            height: 60, // Increased height
+            x: x - 25,     // 50px wide crate
+            y: groundY - 50, // 50px tall crate resting on ground
+            width: 50,
+            height: 50,
             text: opt,
             isCorrect: opt === engineState.currentQuestion.answer,
             hitBy: [], // store who hit it
-            color: '#34495e',
+            color: '#8B4513', // SaddleBrown for wooden crate
             showResult: false
         });
     });
@@ -570,12 +586,7 @@ function handleTargetHit(target, isPlayer1Hit) {
             points = -20;
         }
 
-        engineState.myScore += points;
-        document.getElementById(gameState.isPlayer1 ? 'p1-score' : 'p2-score').innerText = engineState.myScore;
-
-        if (gameState.mode === 'pvp') {
-            socket.emit('updateScore', { roomCode: gameState.roomCode, score: engineState.myScore });
-        }
+        engineState.pendingMyPoints += points;
     } else if (gameState.mode === 'pvai' && !isPlayer1Hit) {
         // Calculate points for AI
         let points = 0;
@@ -584,14 +595,24 @@ function handleTargetHit(target, isPlayer1Hit) {
         } else {
             points = -20;
         }
-        engineState.opponentScore += points;
-        document.getElementById('p2-score').innerText = engineState.opponentScore;
+        engineState.pendingOpponentPoints += points;
     }
 }
 
 function endRound() {
     clearInterval(engineState.timerInterval);
     engineState.timeRemaining = 0;
+
+    // Apply pending points at the end of the round
+    engineState.myScore += engineState.pendingMyPoints;
+    document.getElementById(gameState.isPlayer1 ? 'p1-score' : 'p2-score').innerText = engineState.myScore;
+
+    if (gameState.mode === 'pvp') {
+        socket.emit('updateScore', { roomCode: gameState.roomCode, score: engineState.myScore });
+    } else if (gameState.mode === 'pvai') {
+        engineState.opponentScore += engineState.pendingOpponentPoints;
+        document.getElementById('p2-score').innerText = engineState.opponentScore;
+    }
 
     // Highlight correct/incorrect answers
     engineState.targets.forEach(t => {
@@ -648,29 +669,61 @@ function wrapText(context, text, x, y, maxWidth, lineHeight) {
 
 function drawTargets() {
     engineState.targets.forEach(t => {
-        ctx.fillStyle = t.color;
-        ctx.fillRect(t.x, t.y, t.width, t.height);
+        // Draw the flagpole emerging from the crate
+        const poleX = t.x + t.width / 2;
+        const poleHeight = 100;
+        ctx.strokeStyle = '#BDC3C7';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(poleX, t.y);
+        ctx.lineTo(poleX, t.y - poleHeight);
+        ctx.stroke();
 
+        // Draw the flag
+        const flagWidth = 140;
+        const flagHeight = 70;
+        const flagY = t.y - poleHeight;
+
+        // If showing result, flag changes color, else dark blueish
+        let flagColor = t.showResult ? t.color : '#2C3E50';
+
+        ctx.fillStyle = flagColor;
+        ctx.fillRect(poleX, flagY, flagWidth, flagHeight);
         ctx.strokeStyle = 'white';
         ctx.lineWidth = 2;
-        ctx.strokeRect(t.x, t.y, t.width, t.height);
+        ctx.strokeRect(poleX, flagY, flagWidth, flagHeight);
 
-        // Draw hit markers
+        // Draw hit markers above the crate, but below flag
         if (t.hitBy.length > 0) {
             const hitText = t.hitBy.map(isP1 => isP1 ? 'P1' : 'P2').join(',');
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-            ctx.fillRect(t.x, t.y - 15, t.width, 15);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillRect(t.x, t.y - 20, t.width, 15);
             ctx.fillStyle = 'black';
-            ctx.font = '10px Arial';
-            ctx.fillText(hitText, t.x + t.width/2, t.y - 7.5);
+            ctx.font = 'bold 10px Arial';
+            ctx.fillText(hitText, t.x + t.width/2, t.y - 12);
         }
 
+        // Draw text on the Flag
         ctx.fillStyle = 'white';
-        ctx.font = '11px Arial'; // Slightly smaller font to fit large text
+        ctx.font = '11px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        // Wrap text to fit inside box
-        wrapText(ctx, t.text, t.x + t.width/2, t.y + t.height/2, t.width - 10, 14);
+        wrapText(ctx, t.text, poleX + flagWidth/2, flagY + flagHeight/2, flagWidth - 10, 14);
+
+        // Draw the Crate (Hitbox)
+        ctx.fillStyle = '#8B4513'; // Base wood color
+        ctx.fillRect(t.x, t.y, t.width, t.height);
+
+        // Crate details (X pattern)
+        ctx.strokeStyle = '#5C2E0B'; // Darker wood for lines
+        ctx.lineWidth = 3;
+        ctx.strokeRect(t.x, t.y, t.width, t.height);
+        ctx.beginPath();
+        ctx.moveTo(t.x, t.y);
+        ctx.lineTo(t.x + t.width, t.y + t.height);
+        ctx.moveTo(t.x + t.width, t.y);
+        ctx.lineTo(t.x, t.y + t.height);
+        ctx.stroke();
     });
 }
 
@@ -750,7 +803,6 @@ function setupControls() {
             engineState.isCharging = true;
             engineState.chargePower = 0;
             engineState.chargeDirection = 1;
-            powerBarContainer.style.display = 'block';
             powerBarFill.style.width = '0%';
         }
     });
@@ -758,7 +810,7 @@ function setupControls() {
     canvas.addEventListener('mouseup', (e) => {
         if (engineState.isCharging) {
             engineState.isCharging = false;
-            powerBarContainer.style.display = 'none';
+            powerBarFill.style.width = '0%'; // Reset bar after shot
 
             if (engineState.myShotsRemaining > 0) {
                 fireProjectile(getMyTank(), engineState.chargePower);
