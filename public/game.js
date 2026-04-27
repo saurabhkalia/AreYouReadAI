@@ -442,9 +442,10 @@ function generateTargets() {
     currentSeed = engineState.level * 100 + engineState.questionIndex + 1; // +1 to offset from terrain seed
     shuffleArraySeeded(options);
 
-    // Spread targets widely over 1200px canvas, keep them away from players (x < 150 or x > 1050)
-    const startX = 200;
-    const spreadArea = 800; // Between x=200 and x=1000
+    // Spread targets widely over 1200px canvas, keeping decent distance from tanks
+    // Tanks are roughly at x=100 and x=1100
+    const startX = 300;
+    const spreadArea = 600; // Between x=300 and x=900
     const spacing = spreadArea / (options.length - 1);
 
     options.forEach((opt, idx) => {
