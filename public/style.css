@@ -26,7 +26,7 @@ body {
 }
 
 #app {
-    width: 1000px;
+    width: 1200px;
     height: 700px;
     position: relative;
     background-color: #1a252f;
@@ -224,12 +224,14 @@ input[type="text"] {
     text-align: right;
 }
 
-.avatar-ui {
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    border: 2px solid white;
-    object-fit: cover;
+.mid-quit {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    z-index: 20;
+    pointer-events: auto; /* Required because #game-ui ignores pointer events */
 }
 
 .center-info {
@@ -272,7 +274,7 @@ canvas {
     border: 2px solid white;
     border-radius: 10px;
     overflow: hidden;
-    display: none;
+    display: block; /* Always visible */
 }
 
 #power-bar-fill {

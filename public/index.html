@@ -10,7 +10,7 @@
     <div id="app">
         <!-- Landing / Menu Screen -->
         <div id="landing-screen" class="screen active">
-            <h1>Are You Ready AI?</h1>
+            <h1>Are you ReadAI?</h1>
 
             <div class="player-setup">
                 <div class="input-group">
@@ -60,7 +60,6 @@
             <div id="game-ui">
                 <div class="top-bar">
                     <div class="player-info p1-info">
-                        <img id="p1-avatar-ui" class="avatar-ui" src="" alt="">
                         <div>
                             <span id="p1-name-ui">Player 1</span>
                             <div class="score">Score: <span id="p1-score">0</span></div>
@@ -74,7 +73,6 @@
                     </div>
 
                     <div class="player-info p2-info">
-                        <img id="p2-avatar-ui" class="avatar-ui" src="" alt="">
                         <div>
                             <span id="p2-name-ui">Player 2</span>
                             <div class="score">Score: <span id="p2-score">0</span></div>
@@ -86,9 +84,10 @@
                 <div id="question-container">
                     <div id="question-text">Question loading...</div>
                 </div>
+                <button id="btnQuitGameMid" class="btn secondary mid-quit">Quit Game</button>
             </div>
 
-            <canvas id="gameCanvas" width="1000" height="600"></canvas>
+            <canvas id="gameCanvas" width="1200" height="600"></canvas>
 
             <div id="power-bar-container">
                 <div id="power-bar-fill"></div>
