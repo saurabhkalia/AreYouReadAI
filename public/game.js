@@ -130,8 +130,8 @@ socket.on('startGame', (data) => {
 });
 
 function getAvatarSrc(avatarData) {
-    // Return custom avatar if available, otherwise return generic placeholder using a UI avatar service
-    return avatarData || `https://ui-avatars.com/api/?name=Soldier&background=random`;
+    // Return custom avatar if available, otherwise return local soldier SVG
+    return avatarData || `soldier.svg`;
 }
 
 function setupGameUI() {
@@ -503,11 +503,16 @@ function generateTargets() {
         const groundPoint = engineState.terrain.find(pt => pt.x >= x);
         const groundY = groundPoint ? groundPoint.y : (canvas.height - 100);
 
+        // Alternate pole height to prevent wide signboards from overlapping
+        // Left and Right bunkers get a short pole, center bunker gets a tall pole
+        const poleHeight = (idx === 1) ? 140 : 60;
+
         engineState.targets.push({
             x: x,
             y: groundY - bunkerSize,
             width: bunkerSize,
             height: bunkerSize,
+            poleHeight: poleHeight,
             text: opt,
             isCorrect: opt === engineState.currentQuestion.answer,
             hitBy: [], // store who hit it
@@ -739,7 +744,7 @@ function drawTargets() {
     engineState.targets.forEach(t => {
         // Draw the Signboard extending upwards from the bunker
         const signPoleWidth = 6;
-        const signPoleHeight = 60;
+        const signPoleHeight = t.poleHeight;
         const signPoleX = t.x + t.width/2 - signPoleWidth/2;
         const signPoleY = t.y - signPoleHeight;
 
