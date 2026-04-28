@@ -130,8 +130,8 @@ socket.on('startGame', (data) => {
 });
 
 function getAvatarSrc(avatarData) {
-    // Return custom avatar if available, otherwise return generic placeholder using a UI avatar service
-    return avatarData || `https://ui-avatars.com/api/?name=Soldier&background=random`;
+    // Return custom avatar if available, otherwise return local soldier SVG
+    return avatarData || `soldier.svg`;
 }
 
 function setupGameUI() {
@@ -365,11 +365,6 @@ function generateTerrain(level) {
             y = canvas.height - 100;
         }
 
-        // Flatten center area for the vertical crate tower (approx x=500 to x=700)
-        if (i >= 21 && i <= 28) {
-            y = canvas.height - 100;
-        }
-
         terrain.push({ x: i * step, y: Math.max(200, Math.min(canvas.height - 20, y)) });
     }
     return terrain;
@@ -506,29 +501,35 @@ function generateTargets() {
     currentSeed = engineState.level * 100 + engineState.questionIndex + 1;
     shuffleArraySeeded(options);
 
-    // Stack targets vertically in the exact center
-    const towerX = 600; // Exact center of 1200px canvas
-    const groundY = engineState.terrain.find(pt => pt.x >= towerX).y;
-
-    // 4 crates stacked. The lowest one rests on the ground.
-    // Tightly pack the crates to prevent UI overlap
-    const crateSize = 50;
-    const verticalSpacing = 10;
+    // 3 Bunkers spread across the middle ground
+    // We will divide the center (x=300 to x=900) into 3 zones
+    const zoneWidth = 200; // 3 zones: 300-500, 500-700, 700-900
+    const bunkerSize = 60;
 
     options.forEach((opt, idx) => {
-        // Index 0 is the bottom crate, index 3 is the top crate.
-        const y = groundY - crateSize - (idx * (crateSize + verticalSpacing));
+        // Calculate random X within this specific zone
+        const zoneStartX = 300 + (idx * zoneWidth);
+        const randomOffsetX = seededRandom() * (zoneWidth - bunkerSize);
+        const x = zoneStartX + randomOffsetX;
 
-        // Define hitbox for the Crate ONLY
+        // Find ground Y at this exact X coordinate
+        const groundPoint = engineState.terrain.find(pt => pt.x >= x);
+        const groundY = groundPoint ? groundPoint.y : (canvas.height - 100);
+
+        // Alternate pole height to prevent wide signboards from overlapping
+        // Left and Right bunkers get a short pole, center bunker gets a tall pole
+        const poleHeight = (idx === 1) ? 140 : 60;
+
         engineState.targets.push({
-            x: towerX - (crateSize / 2),
-            y: y,
-            width: crateSize,
-            height: crateSize,
+            x: x,
+            y: groundY - bunkerSize,
+            width: bunkerSize,
+            height: bunkerSize,
+            poleHeight: poleHeight,
             text: opt,
             isCorrect: opt === engineState.currentQuestion.answer,
             hitBy: [], // store who hit it
-            color: '#8B4513', // SaddleBrown for wooden crate
+            color: '#555555', // Slate/Rock color
             showResult: false
         });
     });
@@ -754,60 +755,68 @@ function wrapText(context, text, x, y, maxWidth, lineHeight) {
 
 function drawTargets() {
     engineState.targets.forEach(t => {
-        // Draw the flag sticking out to the right of the crate
-        const flagWidth = 140;
-        const flagHeight = 50; // Match crate height
-        const flagX = t.x + t.width + 10;
-        const flagY = t.y;
+        // Draw the Signboard extending upwards from the bunker
+        const signPoleWidth = 6;
+        const signPoleHeight = t.poleHeight;
+        const signPoleX = t.x + t.width/2 - signPoleWidth/2;
+        const signPoleY = t.y - signPoleHeight;
 
-        // If showing result, flag changes color, else dark blueish
-        let flagColor = t.showResult ? t.color : '#2C3E50';
+        ctx.fillStyle = '#654321'; // Wood pole
+        ctx.fillRect(signPoleX, signPoleY, signPoleWidth, signPoleHeight);
 
-        // Draw small horizontal bracket holding flag
+        const signWidth = 140;
+        const signHeight = 50;
+        const signX = t.x + t.width/2 - signWidth/2;
+        const signY = t.y - signPoleHeight - signHeight;
+
+        // If showing result, signboard changes color, else dark blueish
+        let signColor = t.showResult ? t.color : '#2C3E50';
+
+        ctx.fillStyle = signColor;
+        ctx.fillRect(signX, signY, signWidth, signHeight);
         ctx.strokeStyle = '#BDC3C7';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(t.x + t.width, t.y + 10);
-        ctx.lineTo(flagX, t.y + 10);
-        ctx.stroke();
-
-        ctx.fillStyle = flagColor;
-        ctx.fillRect(flagX, flagY, flagWidth, flagHeight);
-        ctx.strokeStyle = 'white';
         ctx.lineWidth = 2;
-        ctx.strokeRect(flagX, flagY, flagWidth, flagHeight);
+        ctx.strokeRect(signX, signY, signWidth, signHeight);
 
-        // Draw hit markers above the crate
-        if (t.hitBy.length > 0) {
-            const hitText = t.hitBy.map(isP1 => isP1 ? 'P1' : 'P2').join(',');
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-            ctx.fillRect(t.x, t.y - 20, t.width, 15);
-            ctx.fillStyle = 'black';
-            ctx.font = 'bold 10px Arial';
-            ctx.fillText(hitText, t.x + t.width/2, t.y - 12);
-        }
-
-        // Draw text on the Flag
+        // Draw text on the Signboard
         ctx.fillStyle = 'white';
         ctx.font = '11px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        wrapText(ctx, t.text, flagX + flagWidth/2, flagY + flagHeight/2, flagWidth - 10, 14);
+        wrapText(ctx, t.text, signX + signWidth/2, signY + signHeight/2, signWidth - 10, 14);
 
-        // Draw the Crate (Hitbox)
-        ctx.fillStyle = '#8B4513'; // Base wood color
-        ctx.fillRect(t.x, t.y, t.width, t.height);
-
-        // Crate details (X pattern)
-        ctx.strokeStyle = '#5C2E0B'; // Darker wood for lines
-        ctx.lineWidth = 3;
-        ctx.strokeRect(t.x, t.y, t.width, t.height);
+        // Draw the Rocky Bunker (Hitbox)
+        // We will draw it as a dome/rock shape that fits exactly inside the width/height hitbox
+        ctx.fillStyle = t.showResult ? t.color : '#555555';
         ctx.beginPath();
-        ctx.moveTo(t.x, t.y);
-        ctx.lineTo(t.x + t.width, t.y + t.height);
-        ctx.moveTo(t.x + t.width, t.y);
-        ctx.lineTo(t.x, t.y + t.height);
+        ctx.moveTo(t.x, t.y + t.height); // bottom left
+        ctx.lineTo(t.x + 5, t.y + 10); // jagged left
+        ctx.lineTo(t.x + t.width/2, t.y); // top middle peak
+        ctx.lineTo(t.x + t.width - 5, t.y + 15); // jagged right
+        ctx.lineTo(t.x + t.width, t.y + t.height); // bottom right
+        ctx.closePath();
+        ctx.fill();
+
+        // Inner rocky details
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 2;
         ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(t.x + 15, t.y + t.height);
+        ctx.lineTo(t.x + 20, t.y + 20);
+        ctx.moveTo(t.x + 40, t.y + t.height);
+        ctx.lineTo(t.x + 45, t.y + 30);
+        ctx.stroke();
+
+        // Draw hit markers above the rocky bunker
+        if (t.hitBy.length > 0) {
+            const hitText = t.hitBy.map(isP1 => isP1 ? 'P1' : 'P2').join(',');
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillRect(t.x + t.width/2 - 15, t.y - 15, 30, 15);
+            ctx.fillStyle = 'black';
+            ctx.font = 'bold 10px Arial';
+            ctx.fillText(hitText, t.x + t.width/2, t.y - 7);
+        }
     });
 }
 
