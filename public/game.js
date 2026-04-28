@@ -205,13 +205,26 @@ class Tank {
         this.color = color;
         // Default aim based on side
         this.angle = isPlayer1 ? -Math.PI / 4 : -3 * Math.PI / 4;
-
         // Setup Avatar Image
         this.avatarImg = new Image();
         if (isPlayer1) {
-            this.avatarImg.src = getAvatarSrc(gameState.avatar);
+            // Left tank is always Player 1
+            if (gameState.isPlayer1) {
+                // I am Player 1, so the left tank is ME
+                this.avatarImg.src = getAvatarSrc(gameState.avatar);
+            } else {
+                // I am Player 2, so the left tank is the OPPONENT
+                this.avatarImg.src = getAvatarSrc(gameState.opponentAvatar);
+            }
         } else {
-            this.avatarImg.src = getAvatarSrc(gameState.opponentAvatar);
+            // Right tank is always Player 2
+            if (gameState.isPlayer1) {
+                // I am Player 1, so the right tank is the OPPONENT
+                this.avatarImg.src = getAvatarSrc(gameState.opponentAvatar);
+            } else {
+                // I am Player 2, so the right tank is ME
+                this.avatarImg.src = getAvatarSrc(gameState.avatar);
+            }
         }
     }
 
